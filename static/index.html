@@ -616,6 +616,16 @@
         }
     };
 
+    // Bir sohbetin gecmisini modele gonderilecek formata cevirir (sistem
+    // mesajlari haric, son N mesajla sinirlandirilir).
+    const MAX_HISTORY_MESSAGES = 12;
+    function buildHistoryForModel(conv) {
+        return conv.messages
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .slice(-MAX_HISTORY_MESSAGES)
+            .map(m => ({ role: m.role, content: m.content }));
+    }
+
     async function sendMessage() {
         const convId = currentConvId;
         if (!convId) return;
@@ -627,6 +637,10 @@
 
         const imagesToSend = currentImages.slice();
         let userMsg = prompt || ('Görsel' + (imagesToSend.length > 1 ? 'ler' : '') + ' hakkında yorum yap');
+
+        // Yeni mesaj eklenmeden ONCEKI durumu (gercek gecmis) yakala
+        const history = buildHistoryForModel(conv);
+
         addMessageTo(convId, 'user', userMsg + (imagesToSend.length ? ' [' + imagesToSend.length + ' görsel]' : ''));
         promptEl.value = '';
 
@@ -644,7 +658,9 @@
         const model = conv.model;
         const hasImages = imagesToSend.length > 0;
         const url = hasImages ? '/chat-multi-image' : '/chat';
-        const body = hasImages ? { prompt: userMsg, model, images: imagesToSend } : { prompt: userMsg, model };
+        const body = hasImages
+            ? { prompt: userMsg, model, images: imagesToSend, history }
+            : { prompt: userMsg, model, history };
 
         try {
             const res = await fetch(url, {

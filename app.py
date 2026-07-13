@@ -310,51 +310,76 @@ def is_vision_capable(model):
     return any(k in model for k in keywords)
 
 
-def generate_cloud(model, prompt, images=None, has_internet=False):
+def generate_cloud(model, prompt, images=None, has_internet=False, history=None):
     if not GEMINI_API_KEY:
         raise RuntimeError(
             "GEMINI_API_KEY tanimli degil. Proje klasorune bir '.env' dosyasi "
             "ekleyip icine GEMINI_API_KEY=... satirini yazin."
         )
     system_prompt = build_system_prompt(has_internet=has_internet, model=model)
+    use_system_instruction = True
     try:
         # Yeni SDK surumleri system_instruction destekler
         gmodel = genai.GenerativeModel(CLOUD_MODELS[model], system_instruction=system_prompt)
-        content = [prompt]
     except TypeError:
         # Eski SDK surumu system_instruction desteklemiyor; sistem promptunu
-        # mesajin basina elle ekliyoruz (SDK surumunden bagimsiz calisir).
+        # ilk mesajin basina elle ekleyecegiz (asagida).
         gmodel = genai.GenerativeModel(CLOUD_MODELS[model])
-        content = [system_prompt + "\n\n---\n\nKullanicinin mesaji:\n" + prompt]
+        use_system_instruction = False
 
+    # Onceki sohbet turlerini Gemini'nin 'user'/'model' rol formatina cevir
+    contents = []
+    for h in (history or []):
+        role = h.get('role')
+        text = h.get('content', '')
+        if not text:
+            continue
+        if role == 'user':
+            contents.append({'role': 'user', 'parts': [text]})
+        elif role == 'assistant':
+            contents.append({'role': 'model', 'parts': [text]})
+
+    current_prompt = prompt
+    if not use_system_instruction and not contents:
+        # Eski SDK + gecmis yok: sistem promptunu ilk mesaja ekle
+        current_prompt = system_prompt + "\n\n---\n\nKullanicinin mesaji:\n" + prompt
+
+    current_parts = [current_prompt]
     if images:
         for img_b64 in images:
-            content.append({'mime_type': 'image/png', 'data': base64.b64decode(img_b64)})
-    resp = gmodel.generate_content(content)
+            current_parts.append({'mime_type': 'image/png', 'data': base64.b64decode(img_b64)})
+    contents.append({'role': 'user', 'parts': current_parts})
+
+    resp = gmodel.generate_content(contents)
     return resp.text
 
 
-def generate_local(model, prompt, images=None):
-    kwargs = {
-        'model': model,
-        'prompt': prompt,
-        'system': build_system_prompt(has_internet=False, model=model),
-        'keep_alive': OLLAMA_KEEP_ALIVE,
-    }
+def generate_local(model, prompt, images=None, history=None):
+    messages = [{'role': 'system', 'content': build_system_prompt(has_internet=False, model=model)}]
+    for h in (history or []):
+        role = h.get('role')
+        text = h.get('content', '')
+        if not text or role not in ('user', 'assistant'):
+            continue
+        messages.append({'role': role, 'content': text})
+
+    current_msg = {'role': 'user', 'content': prompt}
     if images:
-        kwargs['images'] = images
+        current_msg['images'] = images
+    messages.append(current_msg)
+
     if not is_ollama_running():
         start_ollama()
-    response = ollama_client.generate(**kwargs)
-    return response['response']
+    response = ollama_client.chat(model=model, messages=messages, keep_alive=OLLAMA_KEEP_ALIVE)
+    return response['message']['content']
 
 
-def generate_with_model(model, prompt, images=None):
+def generate_with_model(model, prompt, images=None, history=None):
     if model == WEB_RESEARCH_MODEL_NAME:
         return generate_web_research(prompt, images=images)
     if is_cloud_model(model):
-        return generate_cloud(model, prompt, images=images)
-    return generate_local(model, prompt, images=images)
+        return generate_cloud(model, prompt, images=images, history=history)
+    return generate_local(model, prompt, images=images, history=history)
 
 
 def list_local_models():
@@ -372,10 +397,11 @@ def list_local_models():
 
 
 # CPU'da hizli calisan kucuk modeller once denenir (yedeklemede zaman kaybetmemek icin)
+# Not: llama3.2-vision:11b, gemma4:12b ve phi4:latest bilerek listede degil -
+# bu bilgisayarda (GPU'suz, CPU-only) pratik olarak cok yavas/uyumsuz bulundular.
 PRIORITY_LOCAL = [
-    'qwen2.5:3b', 'llama3.2:3b', 'gemma2:2b', 'phi3:latest',
-    'moondream:latest', 'granite3.2-vision:2b', 'llama3.2-vision:11b',
-    'phi4:latest', 'gemma4:12b', 'deepseek-r1:1.5b', 'llama3.1:latest', 'qwen2.5:7b',
+    'qwen2.5:3b', 'qwen2.5:7b', 'llama3.2:3b', 'gemma2:2b', 'phi3:latest',
+    'moondream:latest', 'granite3.2-vision:2b', 'deepseek-r1:1.5b', 'llama3.1:latest',
 ]
 
 
@@ -399,13 +425,25 @@ def build_fallback_candidates(failed_model, vision_only=False):
     return candidates
 
 
-def generate_with_fallback(requested_model, prompt, images=None):
+# Modele gonderilecek gecmis mesaj sayisi sinirlandirilir - kucuk yerel
+# modellerin baglam penceresini asmamak ve CPU'da yavaslamamak icin.
+MAX_HISTORY_MESSAGES = 12
+
+
+def trim_history(history):
+    if not history:
+        return []
+    return history[-MAX_HISTORY_MESSAGES:]
+
+
+def generate_with_fallback(requested_model, prompt, images=None, history=None):
     """Istenen model yanit veremezse otomatik olarak baska bir modele gecer."""
     vision_only = bool(images)
     tried = [requested_model]
+    history = trim_history(history)
 
     try:
-        text = generate_with_model(requested_model, prompt, images=images)
+        text = generate_with_model(requested_model, prompt, images=images, history=history)
         return {'response': text, 'model': requested_model, 'fallback': False}
     except Exception as e:
         print(f"[MODEL HATASI] '{requested_model}' yanit veremedi: {e}")
@@ -413,7 +451,7 @@ def generate_with_fallback(requested_model, prompt, images=None):
     for candidate in build_fallback_candidates(requested_model, vision_only=vision_only):
         tried.append(candidate)
         try:
-            text = generate_with_model(candidate, prompt, images=images)
+            text = generate_with_model(candidate, prompt, images=images, history=history)
             return {
                 'response': text,
                 'model': candidate,
@@ -445,10 +483,11 @@ def chat():
     data = request.get_json()
     prompt = (data.get('prompt') or '').strip()
     model = data.get('model', 'moondream:latest')
+    history = data.get('history', [])
     if not prompt:
         return jsonify({'error': 'Bos mesaj'}), 400
     try:
-        result = generate_with_fallback(model, prompt)
+        result = generate_with_fallback(model, prompt, history=history)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -460,13 +499,15 @@ def chat_multi_image():
     prompt = (data.get('prompt') or '').strip()
     model = data.get('model', 'moondream:latest')
     images = data.get('images', [])
+    history = data.get('history', [])
     if not images:
         return jsonify({'error': 'Gorsel bulunamadi'}), 400
     try:
         result = generate_with_fallback(
             model,
             prompt or 'Bu görsel(ler) hakkında detaylı yorum yap.',
-            images=images
+            images=images,
+            history=history
         )
         return jsonify(result)
     except Exception as e:
@@ -609,9 +650,9 @@ def list_models():
     local_models = list_local_models()
     if not local_models:
         local_models = [
-            'gemma4:12b', 'deepseek-r1:1.5b', 'phi3:latest', 'llama3.2-vision:11b',
-            'moondream:latest', 'granite3.2-vision:2b', 'phi4:latest', 'llama3.2:3b',
-            'gemma2:2b', 'qwen2.5:3b', 'llama3.1:latest', 'qwen2.5:7b',
+            'deepseek-r1:1.5b', 'phi3:latest', 'moondream:latest',
+            'granite3.2-vision:2b', 'llama3.2:3b', 'gemma2:2b',
+            'qwen2.5:3b', 'qwen2.5:7b', 'llama3.1:latest'
         ]
     research_models = [WEB_RESEARCH_MODEL_NAME] if GEMINI_API_KEY else []
     return jsonify({
