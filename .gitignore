@@ -5,3 +5,13 @@ __pycache__/
 uploads/
 excels/
 log.txt
+
+# Otomatik olusturulan yedek/eski/bozuk dosya kopyalari
+*_yedek*
+*_eski*
+*bozuk*
+*backup*
+*.bak
+*.tam_yedek
+*(1)*
+Yeni Metin Belgesi*.txt
