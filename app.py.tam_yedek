@@ -1,0 +1,189 @@
+import io
+import os
+import re
+import sys
+import time
+import atexit
+import base64
+import subprocess
+
+from flask import Flask, request, jsonify, send_from_directory, send_file, Response
+from flask_cors import CORS
+from dotenv import load_dotenv
+import ollama
+from pypdf import PdfReader
+from openpyxl import Workbook
+
+load_dotenv()
+
+app = Flask(__name__, static_folder='static')
+CORS(app, expose_headers=['X-Saved-Filename'])
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXCELS_DIR = os.path.join(BASE_DIR, 'excels')
+UPLOADS_DIR = os.path.join(BASE_DIR, 'uploads')
+os.makedirs(EXCELS_DIR, exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+OLLAMA_HOST = 'http://127.0.0.1:11434'
+OLLAMA_TIMEOUT = 300
+ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT)
+ollama_process = None
+
+def is_ollama_running():
+    try:
+        ollama_client.list()
+        return True
+    except Exception:
+        return False
+
+def start_ollama():
+    global ollama_process
+    if is_ollama_running():
+        print('[Ollama] zaten calisiyor.')
+        return
+    try:
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        ollama_process = subprocess.Popen(
+            ['ollama', 'serve'],
+            creationflags=creationflags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        for _ in range(20):
+            time.sleep(0.5)
+            if is_ollama_running():
+                print('[Ollama] baslatildi.')
+                return
+    except Exception as e:
+        print(f'[Ollama] baslatma hatasi: {e}')
+
+def stop_ollama():
+    global ollama_process
+    print('[Ollama] Kapatılıyor...')
+    try:
+        import os
+        os.system("taskkill /F /IM ollama.exe /T >nul 2>&1")
+        os.system("taskkill /F /IM ollama_llama_server.exe /T >nul 2>&1")
+    except Exception as e:
+        print(f"Kapatma hatası: {e}")
+
+atexit.register(stop_ollama)
+
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
+CLOUD_MODELS = {'gemini-2.5-flash': 'gemini-2.5-flash'}
+
+if GEMINI_API_KEY:
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+
+def is_cloud_model(model):
+    return model in CLOUD_MODELS
+
+def is_vision_capable(model):
+    if is_cloud_model(model):
+        return True
+    keywords = ('vision', 'moondream')
+    return any(k in model for k in keywords)
+
+def generate_cloud_stream(model, prompt, images=None):
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY tanimli degil.")
+    gmodel = genai.GenerativeModel(CLOUD_MODELS[model])
+    content = [prompt]
+    if images:
+        for img_b64 in images:
+            content.append({'mime_type': 'image/png', 'data': base64.b64decode(img_b64)})
+    response = gmodel.generate_content(content, stream=True)
+    for chunk in response:
+        yield chunk.text
+
+def generate_local_stream(model, prompt, images=None):
+    master_system_prompt = (
+        "Sen, Güven Bey'in (Güven abi) Dell Plus yerel bilgisayarında çalışan, "
+        "ileri düzey, yüksek entelektüel kapasiteye sahip kıdemli bir yapay zeka asistanısın. "
+        "Dil ve Hitabet Kuralları:\n"
+        "1. Doğal ve Akıcı Türkçe: Cümlelerin tamamen dil bilgisi kurallarına uygun, profesyonel "
+        "ve pürüzsüz bir Türkçe ile kurulmalıdır.\n"
+        "2. Hitabet Şekli: Kullanıcıya her zaman 'Güven abi' şeklinde hitap edeceksin.\n"
+        "3. Netlik ve Sadelik: Doğrudan çözüme odaklı yanıtlar vereceksin.\n"
+        "Teknik ve Kodlama Standartları:\n"
+        "- Kodlama çözümlerinde kod bloklarının arasına Türkçe açıklama satırları ekleyeceksin."
+    )
+    kwargs = {'model': model, 'prompt': prompt, 'system': master_system_prompt, 'stream': True}
+    if images:
+        kwargs['images'] = images
+    if not is_ollama_running():
+        start_ollama()
+    return ollama_client.generate(**kwargs)
+
+def list_local_models():
+    try:
+        response = ollama_client.list()
+        names = []
+        if hasattr(response, 'models'):
+            for m in response.models:
+                name = getattr(m, 'model', None) or getattr(m, 'name', None)
+                if name:
+                    names.append(name)
+        return names
+    except Exception:
+        return []
+
+@app.route('/')
+def index():
+    return send_from_directory('static', 'index.html')
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    prompt = (data.get('prompt') or '').strip()
+    model = data.get('model', 'moondream:latest')
+    if not prompt:
+        return jsonify({'error': 'Bos mesaj'}), 400
+    
+    if "/proje" in prompt.lower():
+        try:
+            proje_baglami = "\n\n[GÜNCEL PROJE DOSYALARI BAĞLAMI]:\n"
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            app_file_path = os.path.join(base_path, 'app.py')
+            if os.path.exists(app_file_path):
+                with open(app_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    proje_baglami += f"\n--- app.py DOSYA İÇERİĞİ ---\n{f.read()}\n"
+            html_file_path = os.path.join(base_path, 'static', 'index.html')
+            if os.path.exists(html_file_path):
+                with open(html_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    proje_baglami += f"\n--- static/index.html DOSYA İÇERİĞİ ---\n{f.read()}\n"
+            prompt = prompt + proje_baglami + "\n[Talimat]: Yukarıdaki güncel proje kodlarını temel alarak soruyu yanıtla."
+        except Exception as ce:
+            print(f"Bağlam köprüsü okuma hatası: {ce}")
+
+    try:
+        if is_cloud_model(model):
+            def generate():
+                for chunk in generate_cloud_stream(model, prompt):
+                    yield chunk
+            return Response(generate(), mimetype='text/event-stream')
+        else:
+            def generate():
+                stream_chunks = generate_local_stream(model, prompt)
+                for chunk in stream_chunks:
+                    yield chunk['response']
+            return Response(generate(), mimetype='text/event-stream')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/models', methods=['GET'])
+def list_models():
+    local_models = list_local_models()
+    if not local_models:
+        local_models = [
+            'web-arastirmaci', 'gemma4:12b', 'deepseek-r1:1.5b', 'phi3:latest', 'llama3.2-vision:11b',
+            'moondream:latest', 'granite3.2-vision:2b', 'phi4:latest', 'llama3.2:3b',
+            'gemma2:2b', 'qwen2.5:3b', 'llama3.1:latest'
+        ]
+    return jsonify({'local': local_models, 'cloud': list(CLOUD_MODELS.keys())})
+
+if __name__ == '__main__':
+    start_ollama()
+    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False, threaded=True)

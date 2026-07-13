@@ -1,0 +1,10 @@
+flask
+flask-cors
+ollama
+pypdf
+openpyxl
+python-dotenv
+google-generativeai
+requests
+beautifulsoup4
+ddgs
