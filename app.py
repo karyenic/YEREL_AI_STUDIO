@@ -204,10 +204,29 @@ def get_model_skill_prompt(model):
     return ""
 
 
+# Cok kucuk, gorsel-uzman yerel modeller (moondream, granite-vision gibi) uzun ve
+# cok kurallı bir sistem promptunu duzgun isleyemiyor - talimati tekrar ediyor veya
+# anlamsiz cevaplar veriyor. Bu modellere cok daha kisa/sade bir prompt gonderilir.
+COMPACT_VISION_SYSTEM_PROMPT = (
+    "Sen, Guven adli bir kullanicinin kendi bilgisayarinda calisan kucuk ve hizli "
+    "bir gorsel analiz modelisin. Bir gorsel geldiginde onu Turkce, kisa ve net "
+    "sekilde tarif et. Gorsel yoksa, kisa cumlelerle Turkce cevap ver. "
+    "Ingilizce kullanma."
+)
+
+
 def build_system_prompt(has_internet=False, model=None):
     """Master promptu, dil kurali, guncel tarih, internet erisim durumu ve modele
-    ozel yetenek talimatiyla birlikte olusturur."""
+    ozel yetenek talimatiyla birlikte olusturur.
+
+    Kucuk, gorsel-uzman yerel modeller (moondream, granite-vision gibi) icin
+    cok daha kisa/sade bir prompt kullanilir - bu modeller uzun/karmasik
+    talimatlari duzgun isleyemiyor."""
     today = datetime.now().strftime('%d.%m.%Y')
+
+    if model and is_vision_capable(model) and not is_cloud_model(model):
+        return COMPACT_VISION_SYSTEM_PROMPT + f" Bugunun tarihi: {today}."
+
     prompt = MASTER_SYSTEM_PROMPT + LANGUAGE_RULE + RESPONSE_STYLE_RULE + f" Bugunun tarihi: {today}."
 
     if has_internet:
