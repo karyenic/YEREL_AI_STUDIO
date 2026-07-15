@@ -1,0 +1,1 @@
+﻿Bu, genel sohbet ve yaratici yazim (metin, fikir, taslak uretme) konusunda kullanisli bir yerel modeldir.

@@ -86,12 +86,37 @@ LANGUAGE_RULE = (
     "with that bunu yapalim.'"
 )
 
+# Yanit tarzi/format kurallari - kullanicinin secimiyle eklendi.
+RESPONSE_STYLE_RULE = (
+    " YANIT TARZI KURALLARI: "
+    "(1) KISA VE OZ OL: Varsayilan olarak cevabini 2-4 cumle ile sinirla; kullanici "
+    "'detayli anlat', 'uzun uzun acikla' gibi acikca daha fazla detay istemedikce "
+    "gereksiz uzatma. "
+    "(2) KLISE TEKRARI YAPMA: Her mesaja 'Elbette, size yardimci olmaktan memnuniyet "
+    "duyarim' gibi kalip cumlelerle baslama; doğrudan konuya/cevaba gec. "
+    "(3) KOD BLOGU KURALI: Kod istendiginde veya kod yazdiginda mutlaka uygun bir kod "
+    "blogu icinde (dili belirterek, ornegin ```python) ver, oncesinde/sonrasinda kisa "
+    "bir aciklama ekle. "
+    "(4) SOHBET PENCERESINE UYGUN FORMAT: Sohbet ekrani dar oldugu icin genis Markdown "
+    "tablolari yerine kisa madde isaretli listeler veya kisa paragraflar tercih et. "
+    "(5) BELIRSIZLIKTE TEK SORU SOR: Kullanicinin istegi belirsizse, tahmin yurutup "
+    "yanlis yonde ilerlemek yerine, tek ve net bir netlestirici soru sor. "
+    "(6) UYDURMA, DURUST OL: Emin olmadigin bilgileri kesin bilgiymis gibi sunma; "
+    "bilmiyorsan veya emin degilsen bunu acikca belirt."
+)
+
 # ---------------------------------------------------------------------------
 # Model bazli 'yetenek' promptlari - her modele kendi guclu oldugu alan
 # cercevesinde bir rol/odak tanimlanir. Anahtar, model adinin icinde gecen
 # bir alt-metin olmalidir (kucuk harf, ornegin 'moondream', 'vision', 'qwen').
+#
+# BU SOZLUK ARTIK SADECE YEDEK (VARSAYILAN) OLARAK KULLANILIYOR.
+# Gercek/guncel skill metinleri "skills" klasorundeki .txt dosyalarindan
+# okunur - onlari Not Defteri ile duzenleyebilirsiniz, Python koduna
+# dokunmaniza gerek kalmaz. skills/ klasoru veya bir dosya bulunamazsa,
+# buradaki varsayilan metinler kullanilir.
 # ---------------------------------------------------------------------------
-MODEL_SKILL_PROMPTS = {
+DEFAULT_MODEL_SKILL_PROMPTS = {
     'moondream': (
         "Bu model ozellikle gorsel (resim) analiz etmek icin egitilmis kucuk ve hizli bir "
         "modeldir. Bir gorsel geldiginde, gorseldeki nesneleri, renkleri, metinleri ve genel "
@@ -132,12 +157,48 @@ MODEL_SKILL_PROMPTS = {
     ),
 }
 
+SKILLS_DIR = os.path.join(BASE_DIR, 'skills')
+
+
+def load_skill_files():
+    """skills/ klasorundeki .txt dosyalarini okur. Dosya adi (uzantisiz,
+    kucuk harf) model adiyla eslestirme anahtari olarak kullanilir."""
+    skills = {}
+    if os.path.isdir(SKILLS_DIR):
+        for fname in sorted(os.listdir(SKILLS_DIR)):
+            if not fname.lower().endswith('.txt'):
+                continue
+            key = fname[:-4].lower()
+            path = os.path.join(SKILLS_DIR, fname)
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                if content:
+                    skills[key] = content
+            except Exception as e:
+                print(f"[Skill] '{fname}' okunamadi: {e}")
+    return skills
+
+
+# Uygulama baslarken bir kez okunur. Dosyalari degistirdikten sonra
+# programi yeniden baslatmaniz yeterli.
+SKILL_FILES = load_skill_files()
+if SKILL_FILES:
+    print(f"[Skill] {len(SKILL_FILES)} skill dosyasi yuklendi: {', '.join(SKILL_FILES.keys())}")
+else:
+    print("[Skill] skills/ klasorunde dosya bulunamadi, kod icindeki varsayilanlar kullanilacak.")
+
 
 def get_model_skill_prompt(model):
     if not model:
         return ""
     model_lower = model.lower()
-    for key, text in MODEL_SKILL_PROMPTS.items():
+    # Once disaridaki skill dosyalarina bak (kullanici Not Defteri ile duzenleyebilir)
+    for key, text in SKILL_FILES.items():
+        if key in model_lower:
+            return text
+    # Bulunamazsa kod icindeki varsayilanlara don
+    for key, text in DEFAULT_MODEL_SKILL_PROMPTS.items():
         if key in model_lower:
             return text
     return ""
@@ -147,7 +208,7 @@ def build_system_prompt(has_internet=False, model=None):
     """Master promptu, dil kurali, guncel tarih, internet erisim durumu ve modele
     ozel yetenek talimatiyla birlikte olusturur."""
     today = datetime.now().strftime('%d.%m.%Y')
-    prompt = MASTER_SYSTEM_PROMPT + LANGUAGE_RULE + f" Bugunun tarihi: {today}."
+    prompt = MASTER_SYSTEM_PROMPT + LANGUAGE_RULE + RESPONSE_STYLE_RULE + f" Bugunun tarihi: {today}."
 
     if has_internet:
         prompt += (

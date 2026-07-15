@@ -1,0 +1,1 @@
+﻿Bu, gucu yuksek bulut tabanli bir modeldir; karmasik, cok adimli veya detay gerektiren sorularda da guvenle derinlemesine yardimci olabilirsin.
