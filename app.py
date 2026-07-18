@@ -208,9 +208,12 @@ def generate_web_research(prompt, images=None):
     results = web_search(prompt)
     context = "\n".join([f"Kaynak: {r['title']} - URL: {r['url']}\nOzet: {r['snippet']}" for r in results])
     synthesis_prompt = f"Soru: {prompt}\n\nWeb Sonuclari:\n{context}\n\nBu bilgileri kullanarak Turkce net bir ozet yaz."
-    # ONEMLI: has_internet=True - yoksa model "internet erisimim yok" diye
-    # yazdigi promptun icindeki gercek arama sonuclariyla celisir.
-    return generate_local('qwen2.5:3b', synthesis_prompt, images=images, has_internet=True)
+    if not GEMINI_API_KEY:
+        raise RuntimeError(
+            "Web arastirmasi Gemini 2.5 Flash gerektirir; .env dosyasinda GEMINI_API_KEY tanimli olmali."
+        )
+    # ONEMLI: has_internet=True - gercekten arama yapildigini modele bildirir.
+    return generate_cloud('gemini-2.5-flash', synthesis_prompt, images=images, has_internet=True)
 
 def generate_with_model(model, prompt, images=None, history=None):
     if model == 'web-arastirmaci': return generate_web_research(prompt, images=images)
