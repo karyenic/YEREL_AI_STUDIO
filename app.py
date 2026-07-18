@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import time
+import json
 import atexit
 import base64
 import threading
@@ -29,6 +30,83 @@ app = Flask(__name__, static_folder='static')
 CORS(app, expose_headers=['X-Saved-Filename'])
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OLLAMA_NUM_CTX = 8192  # varsayilan (2048-4096) yerine genis baglam penceresi - gecmis kirpilmasin
+
+# ---------------------------------------------------------------------------
+# Model hiz istatistikleri - her modelin ortalama yanit suresini basit bir
+# JSON dosyasinda tutar. Tahmine degil, gercek veriye dayali karar vermeyi
+# saglar (hangi model gercekten yavas/hizli).
+# ---------------------------------------------------------------------------
+STATS_FILE = os.path.join(BASE_DIR, 'model_stats.json')
+_stats_lock = threading.Lock()
+
+
+def _load_stats():
+    if os.path.exists(STATS_FILE):
+        try:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_stats(stats):
+    try:
+        with open(STATS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(stats, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Stats] kaydedilemedi: {e}")
+
+
+def record_response_time(model, seconds):
+    with _stats_lock:
+        stats = _load_stats()
+        entry = stats.get(model, {'count': 0, 'avg_seconds': 0.0})
+        count = entry['count'] + 1
+        avg = (entry['avg_seconds'] * entry['count'] + seconds) / count
+        stats[model] = {'count': count, 'avg_seconds': round(avg, 2)}
+        _save_stats(stats)
+
+
+# ---------------------------------------------------------------------------
+# Bulut kullanim sayaci - Gemini/Kimi'ye gunde kac istek gittigini takip eder,
+# kota surprizi yasamamak icin.
+# ---------------------------------------------------------------------------
+USAGE_FILE = os.path.join(BASE_DIR, 'cloud_usage.json')
+_usage_lock = threading.Lock()
+
+
+def record_cloud_usage(model):
+    today = datetime.now().strftime('%Y-%m-%d')
+    with _usage_lock:
+        usage = {}
+        if os.path.exists(USAGE_FILE):
+            try:
+                with open(USAGE_FILE, 'r', encoding='utf-8') as f:
+                    usage = json.load(f)
+            except Exception:
+                usage = {}
+        day_entry = usage.get(today, {})
+        day_entry[model] = day_entry.get(model, 0) + 1
+        usage[today] = day_entry
+        try:
+            with open(USAGE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(usage, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[Kullanim] kaydedilemedi: {e}")
+
+
+def get_today_cloud_usage():
+    today = datetime.now().strftime('%Y-%m-%d')
+    if os.path.exists(USAGE_FILE):
+        try:
+            with open(USAGE_FILE, 'r', encoding='utf-8') as f:
+                usage = json.load(f)
+            return usage.get(today, {})
+        except Exception:
+            return {}
+    return {}
 EXCELS_DIR = os.path.join(BASE_DIR, 'excels')
 UPLOADS_DIR = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(EXCELS_DIR, exist_ok=True)
@@ -192,7 +270,10 @@ def generate_local(model, prompt, images=None, history=None, has_internet=False)
     if images: current_msg['images'] = images
     messages.append(current_msg)
     if not is_ollama_running(): start_ollama()
-    response = ollama_client.chat(model=model, messages=messages, keep_alive=OLLAMA_KEEP_ALIVE)
+    response = ollama_client.chat(
+        model=model, messages=messages, keep_alive=OLLAMA_KEEP_ALIVE,
+        options={'num_ctx': OLLAMA_NUM_CTX}
+    )
     return response['message']['content']
 
 def web_search(query, max_results=4):
@@ -239,15 +320,23 @@ def build_fallback_candidates(failed_model, vision_only=False):
 
 def generate_with_fallback(requested_model, prompt, images=None, history=None):
     # Kimi veya Gemini kotası patlarsa anında yerel modellere vites atan emniyet mekanizması
+    start_time = time.time()
     try:
         text = generate_with_model(requested_model, prompt, images=images, history=history)
+        record_response_time(requested_model, time.time() - start_time)
+        if is_cloud_model(requested_model):
+            record_cloud_usage(requested_model)
         return {'response': text, 'model': requested_model, 'fallback': False}
     except Exception as e:
         print(f"[BULUT KOTA VEYA MODEL SIKINTISI] Otomatik yerel moda gecildi: {e}")
     
     for candidate in build_fallback_candidates(requested_model, vision_only=bool(images)):
+        candidate_start = time.time()
         try:
             text = generate_with_model(candidate, prompt, images=images, history=history)
+            record_response_time(candidate, time.time() - candidate_start)
+            if is_cloud_model(candidate):
+                record_cloud_usage(candidate)
             return {'response': text, 'model': candidate, 'fallback': True, 'requested_model': requested_model}
         except Exception: continue
     raise RuntimeError("Hicbir yerel model yanit veremedi.")
@@ -300,8 +389,43 @@ def image_to_excel():
     buffer.seek(0)
     return send_file(buffer, as_attachment=True, download_name="tablo.xlsx", mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+CONVERSATIONS_BACKUP_FILE = os.path.join(BASE_DIR, 'conversations_backup.json')
+
+@app.route('/save-conversations', methods=['POST'])
+def save_conversations():
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({'error': 'Gecersiz veri'}), 400
+    try:
+        with open(CONVERSATIONS_BACKUP_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/load-conversations', methods=['GET'])
+def load_conversations():
+    if not os.path.exists(CONVERSATIONS_BACKUP_FILE):
+        return jsonify({'found': False})
+    try:
+        with open(CONVERSATIONS_BACKUP_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return jsonify({'found': True, 'data': data})
+    except Exception as e:
+        return jsonify({'found': False, 'error': str(e)})
+
 @app.route('/status', methods=['GET'])
-def status(): return jsonify({'ollama': is_ollama_running(), 'gemini': bool(GEMINI_API_KEY or KIMI_API_KEY)})
+def status():
+    return jsonify({
+        'ollama': is_ollama_running(),
+        'gemini': bool(GEMINI_API_KEY),
+        'kimi': bool(KIMI_API_KEY),
+        'cloud_usage_today': get_today_cloud_usage()
+    })
+
+@app.route('/model-stats', methods=['GET'])
+def model_stats():
+    return jsonify(_load_stats())
 
 @app.route('/models', methods=['GET'])
 def list_models():

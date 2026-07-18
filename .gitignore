@@ -15,3 +15,8 @@ log.txt
 *.tam_yedek
 *(1)*
 Yeni Metin Belgesi*.txt
+
+# Calisma zamaninda otomatik olusan veri dosyalari (kisisel/degisken veri)
+model_stats.json
+cloud_usage.json
+conversations_backup.json
