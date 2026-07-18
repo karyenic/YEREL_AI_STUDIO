@@ -153,6 +153,19 @@ RESPONSE_STYLE_RULE = (
     "(6) UYDURMA, DURUST OL: Bilmiyorsan veya emin degilsen bunu acikca belirt."
 )
 
+# Kucuk modeller "hafizan var mi" gibi meta-sorularda kendinden emin sekilde
+# uydurma bilgi verebiliyor (ornegin hic bahsi gecmeyen bir proje/dosyayi
+# "hatirladigini" iddia etmek gibi). Bunu azaltmak icin acik bir kural.
+MEMORY_SCOPE_RULE = (
+    " HAFIZA KAPSAMI KURALI: Senin hafizan SADECE bu spesifik sohbet penceresinde "
+    "az once yazilan mesajlarla sinirlidir. Baska hicbir sohbeti, projeyi, dosyayi "
+    "veya konusmayi BILEMEZSIN ve GORMEZSIN - farkli bir sohbet penceresinde veya "
+    "farkli bir zamanda konusulmus olabilecek hicbir seyi 'hatirliyorum' diye iddia "
+    "etme. Sadece bu mevcut sohbette gercekten yazilmis olanlari hatirladigini soyle; "
+    "emin olmadigin bir 'hatirlama' iddiasinda bulunmaktansa, 'bu konusmada boyle bir "
+    "sey gecmedi' demen daha dogrudur."
+)
+
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 KIMI_API_KEY = os.environ.get('KIMI_API_KEY', '').strip()
 
@@ -200,7 +213,7 @@ def build_system_prompt(has_internet=False, model=None):
     today = datetime.now().strftime('%d.%m.%Y')
     if model and is_vision_capable(model) and not is_cloud_model(model) and 'moondream' in model.lower():
         return "Sen Guven abinin yerel asistanisin. Gorseli kisa, net ve Turkce acikla."
-    prompt = MASTER_SYSTEM_PROMPT + LANGUAGE_RULE + RESPONSE_STYLE_RULE + f" Bugunun tarihi: {today}."
+    prompt = MASTER_SYSTEM_PROMPT + LANGUAGE_RULE + RESPONSE_STYLE_RULE + MEMORY_SCOPE_RULE + f" Bugunun tarihi: {today}."
     if has_internet:
         prompt += (
             " Bu mesaj icin internetten gercek zamanli bir web aramasi yapildi ve sonuclari "

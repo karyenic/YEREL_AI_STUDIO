@@ -412,6 +412,26 @@
         }
     }
 
+    // Akan yanit sirasinda TUM ekrani yeniden cizmek yerine (bu titremeye
+    // yol aciyordu, cunku her mesajin 'belirme' animasyonunu tekrar
+    // tetikliyordu), sadece o an akan balonun metnini dogrudan gunceller.
+    function updateStreamingBubble(conv) {
+        const wrapper = document.getElementById('pendingWrapper');
+        const badge = document.getElementById('pendingBadge');
+        const content = document.getElementById('pendingContent');
+        if (!wrapper || !badge || !content) {
+            // Balon henuz olusturulmamis (ilk parca) - bir kereligine tam ciz
+            renderChat();
+            return;
+        }
+        const streamModel = conv.streamingModel || conv.model;
+        const kind = modelKind(streamModel);
+        badge.className = 'model-badge ' + kind;
+        badge.textContent = modelIcon(kind) + ' ' + modelDisplayName(streamModel);
+        content.textContent = conv.streamingText;
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
     function renderChat() {
         if (!currentConvId || !conversations[currentConvId]) {
             chatBox.innerHTML = '<div class="msg-wrapper system"><div class="msg">Sistem: Lütfen bir sohbet seçin.</div></div>';
@@ -459,12 +479,15 @@
             const streamModel = conv.streamingModel || conv.model;
             const kind = modelKind(streamModel);
             const wrapper = document.createElement('div');
+            wrapper.id = 'pendingWrapper';
             wrapper.className = 'msg-wrapper assistant typing-indicator';
             const badge = document.createElement('div');
+            badge.id = 'pendingBadge';
             badge.className = 'model-badge ' + kind;
             badge.textContent = modelIcon(kind) + ' ' + modelDisplayName(streamModel) + (conv.streamingText ? '' : ' yazıyor');
             wrapper.appendChild(badge);
             const div = document.createElement('div');
+            div.id = 'pendingContent';
             div.className = 'msg';
             if (conv.streamingText) {
                 div.textContent = conv.streamingText;
@@ -775,7 +798,7 @@
                     } else if (evt.type === 'chunk') {
                         accumulated += evt.text;
                         conv.streamingText = accumulated;
-                        if (convId === currentConvId) renderChat();
+                        if (convId === currentConvId) updateStreamingBubble(conv);
                     } else if (evt.type === 'error') {
                         streamError = evt.message;
                     }
