@@ -10,7 +10,7 @@ import threading
 import subprocess
 from datetime import datetime
 
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory, send_file, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 import ollama
@@ -301,6 +301,159 @@ def generate_with_model(model, prompt, images=None, history=None):
     if is_cloud_model(model): return generate_cloud(model, prompt, images=images, history=history)
     return generate_local(model, prompt, images=images, history=history)
 
+# ---------------------------------------------------------------------------
+# STREAMING (akan yanit) uretim fonksiyonlari - her biri parca parca metin
+# yield eder. Bagimsiz calisirlar, mevcut generate_local/generate_cloud'a
+# dokunmuyorlar (onlar excel/warmup gibi tek-parca gereken yerlerde kalmaya
+# devam ediyor).
+# ---------------------------------------------------------------------------
+def _stream_ollama(model, prompt, images, history, has_internet=False):
+    messages = [{'role': 'system', 'content': build_system_prompt(has_internet=has_internet, model=model)}]
+    for h in (history or []):
+        if h.get('role') in ('user', 'assistant'):
+            messages.append({'role': h.get('role'), 'content': h.get('content', '')})
+    current_msg = {'role': 'user', 'content': prompt}
+    if images: current_msg['images'] = images
+    messages.append(current_msg)
+    if not is_ollama_running(): start_ollama()
+    stream = ollama_client.chat(
+        model=model, messages=messages, keep_alive=OLLAMA_KEEP_ALIVE,
+        options={'num_ctx': OLLAMA_NUM_CTX}, stream=True
+    )
+    for chunk in stream:
+        piece = chunk['message']['content']
+        if piece:
+            yield piece
+
+
+def _stream_gemini(model, prompt, images, history, has_internet=False):
+    if not GEMINI_API_KEY:
+        raise RuntimeError("Gemini anahtari yok.")
+    system_prompt = build_system_prompt(has_internet=has_internet, model=model)
+    gmodel = genai.GenerativeModel(CLOUD_MODELS[model], system_instruction=system_prompt)
+    contents = []
+    for h in (history or []):
+        role = 'user' if h.get('role') == 'user' else 'model'
+        contents.append({'role': role, 'parts': [h.get('content', '')]})
+    current_parts = [prompt]
+    if images:
+        for img_b64 in images:
+            current_parts.append({'mime_type': 'image/png', 'data': base64.b64decode(img_b64)})
+    contents.append({'role': 'user', 'parts': current_parts})
+    stream = gmodel.generate_content(contents, stream=True)
+    for chunk in stream:
+        if getattr(chunk, 'text', None):
+            yield chunk.text
+
+
+def _stream_kimi(model, prompt, images, history, has_internet=False):
+    if not KIMI_API_KEY:
+        raise RuntimeError("Kimi API anahtari yok.")
+    system_prompt = build_system_prompt(has_internet=has_internet, model=model)
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {KIMI_API_KEY}"}
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in (history or []):
+        role = 'user' if h.get('role') == 'user' else 'assistant'
+        messages.append({"role": role, "content": h.get('content', '')})
+    current_content = [{"type": "text", "text": prompt}]
+    if images:
+        for img_b64 in images:
+            current_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}})
+    messages.append({"role": "user", "content": current_content})
+    payload = {"model": "moonshot-v1-auto", "messages": messages, "temperature": 0.3, "stream": True}
+    resp = requests.post(
+        "https://api.moonshot.cn/v1/chat/completions",
+        headers=headers, json=payload, timeout=60, stream=True
+    )
+    resp.raise_for_status()
+    for line in resp.iter_lines():
+        if not line:
+            continue
+        line = line.decode('utf-8')
+        if not line.startswith('data: '):
+            continue
+        data_str = line[len('data: '):].strip()
+        if data_str == '[DONE]':
+            break
+        try:
+            data = json.loads(data_str)
+            delta = data['choices'][0]['delta'].get('content', '')
+            if delta:
+                yield delta
+        except Exception:
+            continue
+
+
+def stream_from_model(model, prompt, images=None, history=None):
+    """Modelden parca parca metin uretir. web-arastirmaci cok adimli bir
+    islem oldugu icin (arama+okuma+sentez) tek parca olarak donuyor."""
+    if model == 'web-arastirmaci':
+        text = generate_web_research(prompt, images=images)
+        yield text
+        return
+    if model == 'kimi-k3':
+        yield from _stream_kimi(model, prompt, images, history)
+    elif is_cloud_model(model):
+        yield from _stream_gemini(model, prompt, images, history)
+    else:
+        yield from _stream_ollama(model, prompt, images, history)
+
+
+def stream_chat_response(prompt, model, images, history):
+    """Flask Response icin NDJSON (satir satir JSON) ureten jeneratordur.
+    Once istenen modelin ILK parcasini almayi dener; basarisiz olursa
+    (kullanici fark etmeden) siradaki yedek modele gecer. Bir model basarili
+    sekilde akmaya basladiktan sonra kesintisiz devam eder."""
+    def event_stream():
+        vision_only = bool(images)
+        candidates = [model] + build_fallback_candidates(model, vision_only=vision_only)
+        tried = []
+
+        for idx, candidate in enumerate(candidates):
+            is_primary = (idx == 0)
+            tried.append(candidate)
+            start_time = time.time()
+            try:
+                gen = stream_from_model(candidate, prompt, images=images, history=history)
+                first_piece = next(gen)
+            except StopIteration:
+                first_piece = ''
+                gen = iter([])
+            except Exception as e:
+                print(f"[MODEL HATASI] '{candidate}' yanit veremedi: {e}")
+                continue
+
+            # Bu noktaya geldiysek model basariyla ilk parcayi uretti - artik
+            # bu modelle devam ediyoruz, baska bir sey denemiyoruz.
+            meta = {'type': 'meta', 'model': candidate, 'fallback': not is_primary}
+            if not is_primary:
+                meta['requested_model'] = model
+            yield json.dumps(meta, ensure_ascii=False) + '\n'
+
+            if first_piece:
+                yield json.dumps({'type': 'chunk', 'text': first_piece}, ensure_ascii=False) + '\n'
+
+            try:
+                for piece in gen:
+                    yield json.dumps({'type': 'chunk', 'text': piece}, ensure_ascii=False) + '\n'
+            except Exception as e:
+                print(f"[MODEL HATASI] '{candidate}' akis sirasinda kesildi: {e}")
+                yield json.dumps({'type': 'error', 'message': f'Yanit yarida kesildi: {e}'}, ensure_ascii=False) + '\n'
+                return
+
+            record_response_time(candidate, time.time() - start_time)
+            if is_cloud_model(candidate):
+                record_cloud_usage(candidate)
+            yield json.dumps({'type': 'done'}, ensure_ascii=False) + '\n'
+            return
+
+        yield json.dumps({
+            'type': 'error',
+            'message': "Denenen hicbir model yanit veremedi (" + ', '.join(tried) + ")."
+        }, ensure_ascii=False) + '\n'
+
+    return Response(event_stream(), mimetype='application/x-ndjson')
+
 def list_local_models():
     try:
         response = ollama_status_client.list()
@@ -350,9 +503,9 @@ def chat():
     prompt = (data.get('prompt') or '').strip()
     model = data.get('model', 'qwen2.5:3b')
     history = data.get('history', [])
-    try:
-        return jsonify(generate_with_fallback(model, prompt, history=history))
-    except Exception as e: return jsonify({'error': str(e)}), 500
+    if not prompt:
+        return jsonify({'error': 'Bos mesaj'}), 400
+    return stream_chat_response(prompt, model, images=None, history=history)
 
 @app.route('/chat-multi-image', methods=['POST'])
 def chat_multi_image():
@@ -361,9 +514,12 @@ def chat_multi_image():
     model = data.get('model', 'moondream:latest')
     images = data.get('images', [])
     history = data.get('history', [])
-    try:
-        return jsonify(generate_with_fallback(model, prompt, images=images, history=history))
-    except Exception as e: return jsonify({'error': str(e)}), 500
+    if not images:
+        return jsonify({'error': 'Gorsel bulunamadi'}), 400
+    return stream_chat_response(
+        prompt or 'Bu görsel(ler) hakkında detaylı yorum yap.',
+        model, images=images, history=history
+    )
 
 @app.route('/upload-pdf', methods=['POST'])
 def upload_pdf():
