@@ -260,14 +260,28 @@ def generate_cloud(model, prompt, images=None, history=None, has_internet=False)
     # 2. EĞER SEÇİLEN MODEL GEMINI İSE:
     else:
         if not GEMINI_API_KEY: raise RuntimeError("Gemini anahtari yok.")
-        gmodel = genai.GenerativeModel(CLOUD_MODELS[model], system_instruction=system_prompt)
+        try:
+            # Yeni SDK surumleri system_instruction destekler
+            gmodel = genai.GenerativeModel(CLOUD_MODELS[model], system_instruction=system_prompt)
+            use_system_instruction = True
+        except TypeError:
+            # Eski SDK surumu system_instruction desteklemiyor; sistem promptunu
+            # ilk mesajin basina elle ekleyecegiz (asagida).
+            gmodel = genai.GenerativeModel(CLOUD_MODELS[model])
+            use_system_instruction = False
+
         contents = []
         for h in (history or []):
             role = 'user' if h.get('role') == 'user' else 'model'
             contents.append({'role': role, 'parts': [h.get('content', '')]})
+
+        current_prompt = prompt
+        if not use_system_instruction and not contents:
+            current_prompt = system_prompt + "\n\n---\n\nKullanicinin mesaji:\n" + prompt
+
         # ONEMLI DUZELTME: gorseller 'contents' listesine degil, mevcut turun
         # 'parts' listesine eklenmeli - yoksa Gemini'ye bozuk istek gider.
-        current_parts = [prompt]
+        current_parts = [current_prompt]
         if images:
             for img_b64 in images:
                 current_parts.append({'mime_type': 'image/png', 'data': base64.b64decode(img_b64)})
@@ -343,12 +357,23 @@ def _stream_gemini(model, prompt, images, history, has_internet=False):
     if not GEMINI_API_KEY:
         raise RuntimeError("Gemini anahtari yok.")
     system_prompt = build_system_prompt(has_internet=has_internet, model=model)
-    gmodel = genai.GenerativeModel(CLOUD_MODELS[model], system_instruction=system_prompt)
+    try:
+        gmodel = genai.GenerativeModel(CLOUD_MODELS[model], system_instruction=system_prompt)
+        use_system_instruction = True
+    except TypeError:
+        gmodel = genai.GenerativeModel(CLOUD_MODELS[model])
+        use_system_instruction = False
+
     contents = []
     for h in (history or []):
         role = 'user' if h.get('role') == 'user' else 'model'
         contents.append({'role': role, 'parts': [h.get('content', '')]})
-    current_parts = [prompt]
+
+    current_prompt = prompt
+    if not use_system_instruction and not contents:
+        current_prompt = system_prompt + "\n\n---\n\nKullanicinin mesaji:\n" + prompt
+
+    current_parts = [current_prompt]
     if images:
         for img_b64 in images:
             current_parts.append({'mime_type': 'image/png', 'data': base64.b64decode(img_b64)})
