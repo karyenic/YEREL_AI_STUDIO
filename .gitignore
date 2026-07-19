@@ -20,3 +20,6 @@ Yeni Metin Belgesi*.txt
 model_stats.json
 cloud_usage.json
 conversations_backup.json
+
+# Gecici/yedek zip dosyalari
+*.zip
