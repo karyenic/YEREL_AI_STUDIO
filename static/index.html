@@ -100,7 +100,7 @@
 
         #statusBar { display:flex; gap:6px; }
         .status-pill { font-size:0.8rem; padding:4px 12px; border-radius:20px; font-weight:bold; display:inline-flex; align-items:center; gap:5px; }
-        .status-pill::before { content:'●'; font-size:0.7rem; }
+        .status-pill::before { content:'●'; font-size:0.88rem; font-weight:500; }
         .status-pill.ok { background:#1e4a3a; color:#7de3b3; }
         .status-pill.ok::before { color:#34c77a; }
         .status-pill.down { background:#4a2e2e; color:#ffb4a2; }
@@ -123,7 +123,7 @@
         .assistant .msg { background:var(--bg-msg-assistant); color:var(--text-msg-assistant); }
         .system .msg { background:var(--bg-msg-system); color:var(--text-msg-system); font-size:0.9rem; text-align:center; }
 
-        .chat-time { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; text-align: right; }
+        .chat-time { font-size: 0.88rem; font-weight: 500; color: var(--text-muted); margin-top: 4px; text-align: right; }
 
         /* KUM SAATİ ANİMASYONU VE YANIP SÖNME EFEKTİ */
         @keyframes spin-hourglass {
@@ -185,7 +185,7 @@
 <div id="sidebar">
     <h2>💬 Sohbetler</h2>
     <button id="newChatBtn">+ Yeni Sohbet</button>
-    <div id="sidebarModelLabel">Model seç</div>
+    <div id="sidebarModelLabel"><span style="color:#ffffff !important; font-weight:700 !important; font-size:0.95rem !important;">Model seç</span></div>
     <select id="modelSelect"></select>
     <button id="downloadChatBtn">💾 Sohbeti İndir (.txt)</button>
     <div id="historyList"></div>
