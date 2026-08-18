@@ -1195,5 +1195,27 @@ function downloadMsgText(btn) {
 }
 </script>
 
+
+<script>
+function attachMiniButtons() {
+    // Model/Asistan yanıt balonlarını hedefler
+    const botBubbles = document.querySelectorAll('.bot, .assistant, [data-role="assistant"], .message-bubble:not(.user)');
+    botBubbles.forEach(bubble => {
+        if (!bubble.querySelector('.msg-actions') && bubble.innerText.trim().length > 0) {
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'msg-actions';
+            actionsDiv.innerHTML = `
+                <button class="msg-action-btn" onclick="copyMsgText(this)">📋 Kopyala</button>
+                <button class="msg-action-btn" onclick="downloadMsgText(this)">💾 İndir (.txt)</button>
+            `;
+            bubble.appendChild(actionsDiv);
+        }
+    });
+}
+
+// Balonlar oluştukça butonları otomatik bağla
+setInterval(attachMiniButtons, 1000);
+</script>
+
 </body>
 </html>
