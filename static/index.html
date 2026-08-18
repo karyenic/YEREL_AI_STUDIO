@@ -304,7 +304,13 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
         </div>
         <div class="right-tools">
             <div id="statusBar" class="status-bar"></div>
-            <button id="themeToggle">🌓 Tema</button>
+            <select id="roleSelect" class="form-select form-select-sm" style="width: auto; height: 32px; border-radius: 16px; padding: 0 10px; font-size: 0.81rem; font-weight: 600; background-color: var(--bg-hist-item, #1e222d); color: var(--text-body, #e2e8f0); border: 1px solid var(--border-color, #33394b); margin-right: 8px;">
+        <option value="default">🎯 Rol: Genel</option>
+        <option value="coder">💻 Rol: Yazılım Mimarı</option>
+        <option value="writer">📝 Rol: Teknik Yazar</option>
+        <option value="analyst">📊 Rol: Veri Analisti</option>
+    </select>
+        <button id="themeToggle">🌓 Tema</button>
             <button id="shutdownBtn" style="background:#c0392b; color:white; border:none; border-radius:4px; padding:6px 12px; cursor:pointer;">⏻ Çıkış</button>
         </div>
     </div>
