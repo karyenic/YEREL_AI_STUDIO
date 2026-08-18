@@ -182,9 +182,28 @@
     
 /* Loş (Ara) Tema Stilleri */
 body.dim-theme {
-    background-color: #1e293b !important;
-    color: #e2e8f0 !important;
-}
+            --bg-body: #22272e;
+            --text-body: #adbac7;
+            --text-muted: #768390;
+            --bg-sidebar: #1c2128;
+            --border-color: #373e47;
+            --bg-hist-item: #2d333b;
+            --bg-hist-active: #2b6e9e;
+            --bg-input-field: #2d333b;
+            --border-input: #444c56;
+            --bg-topbar: #1c2128;
+            --bg-chatbox: #22272e;
+            --bg-msg-user: #1f4e7d;
+            --text-msg-user: #ffffff;
+            --bg-msg-assistant: #2d333b;
+            --text-msg-assistant: #adbac7;
+            --bg-msg-system: #442d2d;
+            --text-msg-system: #f5a996;
+            --bg-input-area: #1c2128;
+            --bg-prompt-field: #22272e;
+            --text-prompt-field: #adbac7;
+            --bg-preview: #22272e;
+        }
 body.dim-theme .sidebar, body.dim-theme #sidebar {
     background-color: #0f172a !important;
 }
@@ -1112,14 +1131,28 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
         });
     }
 
+    const themes = ['dark', 'dim', 'light'];
+    const themeLabels = { dark: '🌙 Koyu', dim: '🕯️ Loş', light: '☀️ Açık' };
+
+    function applyTheme(themeName) {
+        document.body.classList.remove('dim-theme', 'light-theme');
+        if (themeName === 'dim') document.body.classList.add('dim-theme');
+        if (themeName === 'light') document.body.classList.add('light-theme');
+        themeToggle.innerHTML = themeLabels[themeName] || '🌓 Tema';
+        localStorage.setItem('theme', themeName);
+    }
+
     themeToggle.onclick = () => {
-        dark = !dark;
-        document.body.classList.toggle('light-theme', !dark);
-        themeToggle.innerHTML = dark ? '🌓 Tema' : '☀️ Tema';
-        localStorage.setItem('theme', dark ? 'dark' : 'light');
+        let current = localStorage.getItem('theme') || 'dark';
+        let nextIndex = (themes.indexOf(current) + 1) % themes.length;
+        applyTheme(themes[nextIndex]);
     };
 
-    if (localStorage.getItem('theme') === 'light') {
+    // Sayfa ilk yüklendiğinde hafızadaki temayı uygula
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    applyTheme(savedTheme);
+
+    if (false) {
         dark = false;
         document.body.classList.add('light-theme');
         themeToggle.innerHTML = '☀️ Tema';
