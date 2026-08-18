@@ -269,6 +269,16 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
     animation: newReplyPulse 1.1s ease-in-out 3;
 }
 
+
+/* Sadece Sol Liste Aktif Kart İkazı */
+#historyList .hist-item.active.sidebar-flash {
+    animation: sidebarFlashAnim 0.6s ease-in-out 2 !important;
+}
+@keyframes sidebarFlashAnim {
+    0%, 100% { background-color: var(--bg-hist-active, #2b6e9e); }
+    50% { background-color: #10b981; }
+}
+
 </style>
 </head>
 <body>
@@ -970,6 +980,15 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
         save();
         renderHistory();
         if (convId === currentConvId) { renderChat(); updateSendButtonState(); }
+        // Yanıt bittiğinde sadece sol listedeki aktif kartı parlatır
+        const activeSidebarItem = document.querySelector('#historyList .hist-item.active');
+        if (activeSidebarItem) {
+            activeSidebarItem.classList.remove('sidebar-flash');
+            void activeSidebarItem.offsetWidth;
+            activeSidebarItem.classList.add('sidebar-flash');
+            setTimeout(() => activeSidebarItem.classList.remove('sidebar-flash'), 1200);
+        }
+
 
         const model = conv.model;
         const hasImages = imagesToSend.length > 0;
@@ -1043,6 +1062,15 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
             save();
             renderHistory();
             if (convId === currentConvId) { renderChat(); updateSendButtonState(); }
+        // Yanıt bittiğinde sadece sol listedeki aktif kartı parlatır
+        const activeSidebarItem = document.querySelector('#historyList .hist-item.active');
+        if (activeSidebarItem) {
+            activeSidebarItem.classList.remove('sidebar-flash');
+            void activeSidebarItem.offsetWidth;
+            activeSidebarItem.classList.add('sidebar-flash');
+            setTimeout(() => activeSidebarItem.classList.remove('sidebar-flash'), 1200);
+        }
+
         }
     }
 
