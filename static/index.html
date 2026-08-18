@@ -179,7 +179,46 @@
             #main { margin-left:0 !important; }
             .msg-wrapper { max-width:95%; }
         }
-    </style>
+    
+/* Loş (Ara) Tema Stilleri */
+body.dim-theme {
+    background-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+body.dim-theme .sidebar, body.dim-theme #sidebar {
+    background-color: #0f172a !important;
+}
+body.dim-theme .chat-container, body.dim-theme .main-content, body.dim-theme main {
+    background-color: #1e293b !important;
+}
+body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
+    border-color: #475569 !important;
+}
+
+
+/* Mini Kopyala ve İndir Buton Stilleri */
+.msg-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    justify-content: flex-end;
+}
+.msg-action-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #e2e8f0;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.msg-action-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+</style>
 </head>
 <body>
 <div id="sidebar">
@@ -1093,5 +1132,68 @@ document.getElementById('shutdownBtn').addEventListener('click', async () => {
     setTimeout(() => { window.close(); }, 800);
 });
 </script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const themeBtn = document.getElementById('theme-btn') || document.querySelector('[onclick*="toggleTheme"]');
+    if (themeBtn) {
+        themeBtn.removeAttribute('onclick');
+        themeBtn.addEventListener('click', function() {
+            const body = document.body;
+            if (!body.classList.contains('dim-theme') && !body.classList.contains('light-theme')) {
+                // Koyu -> Loş
+                body.classList.add('dim-theme');
+                themeBtn.innerHTML = '🌗 Tema (Loş)';
+            } else if (body.classList.contains('dim-theme')) {
+                // Loş -> Açık
+                body.classList.remove('dim-theme');
+                body.classList.add('light-theme');
+                themeBtn.innerHTML = '☀️ Tema (Açık)';
+            } else {
+                // Açık -> Koyu
+                body.classList.remove('light-theme');
+                themeBtn.innerHTML = '🌙 Tema (Koyu)';
+            }
+        });
+    }
+});
+</script>
+
+
+<script>
+function copyMsgText(btn) {
+    const msgContainer = btn.closest('.message-bubble') || btn.closest('.chat-bubble') || btn.parentElement.parentElement;
+    if (!msgContainer) return;
+    
+    // Buton metinlerini ve tarihleri süzerek temiz metni al
+    const clone = msgContainer.cloneNode(true);
+    const actions = clone.querySelector('.msg-actions');
+    if (actions) actions.remove();
+    
+    const textToCopy = clone.innerText.trim();
+    navigator.clipboard.writeText(textToCopy).then(() => {
+        const orig = btn.innerText;
+        btn.innerText = "✓ Kopyalandı";
+        setTimeout(() => btn.innerText = orig, 1500);
+    });
+}
+
+function downloadMsgText(btn) {
+    const msgContainer = btn.closest('.message-bubble') || btn.closest('.chat-bubble') || btn.parentElement.parentElement;
+    if (!msgContainer) return;
+    
+    const clone = msgContainer.cloneNode(true);
+    const actions = clone.querySelector('.msg-actions');
+    if (actions) actions.remove();
+    
+    const textToDownload = clone.innerText.trim();
+    const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `yanit_${new Date().toISOString().slice(0,10)}.txt`;
+    a.click();
+}
+</script>
+
 </body>
 </html>
