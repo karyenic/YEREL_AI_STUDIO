@@ -321,6 +321,7 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
 <script>
 (function(){
     'use strict';
+    let currentAbortController = null;
     let currentImages = [], conversations = {}, currentConvId = null, nextId = 1, dark = true, sidebarOpen = true, toolBusy = false;
 
     const chatBox = document.getElementById('chatBox'), promptEl = document.getElementById('prompt'), sendBtn = document.getElementById('sendBtn');
@@ -728,8 +729,15 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
     function updateSendButtonState() {
         const conv = conversations[currentConvId];
         const pending = !!(conv && conv.pending);
-        sendBtn.disabled = pending;
-        sendBtn.textContent = pending ? '⏳ Düşünüyor...' : 'Gönder';
+        if (pending) {
+            sendBtn.disabled = false;
+            sendBtn.textContent = '🔴 Durdur';
+            sendBtn.classList.add('btn-stop');
+        } else {
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Gönder';
+            sendBtn.classList.remove('btn-stop');
+        }
     }
 
     let modelStats = {};
@@ -956,6 +964,7 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
         }
 
         conv.pending = true;
+        currentAbortController = new AbortController();
         conv.streamingText = '';
         conv.streamingModel = conv.model;
         save();
@@ -979,7 +988,8 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
             const res = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+                body: JSON.stringify(body),
+                signal: currentAbortController.signal
             });
 
             if (!res.ok || !res.body) {
@@ -1103,7 +1113,16 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
             sendMessage();
         }
     });
-    sendBtn.onclick = () => sendMessage();
+    sendBtn.onclick = () => {
+        const conv = conversations[currentConvId];
+        if (conv && conv.pending) {
+            if (currentAbortController) {
+                currentAbortController.abort();
+            }
+        } else {
+            sendMessage();
+        }
+    };
     newChatBtn.onclick = () => createNewChat();
 
     const sendTxtBtn = document.getElementById('sendTxtBtn');
