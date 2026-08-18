@@ -1,0 +1,6 @@
+﻿{
+    "system": "",
+    "language": "Türkçe",
+    "response_style": "Açık, düzenli ve gereksiz tekrar yapmadan yanıt ver.",
+    "memory_scope": "Yalnızca uygulama kapsamındaki bilgiler kullanılmalıdır."
+}

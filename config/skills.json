@@ -1,0 +1,27 @@
+{
+  "teknik_resim_okuyucu": {
+    "name": "2D Teknik Resim & Ölçü Analizi",
+    "model": "granite3.2-vision:2b",
+    "system_instruction": "Görseldeki 2D teknik resmi incele. Ø (çap), R (yarıçap), toleranslar, vida adımları ve yüzey işleme sembollerini tespit et. Çap sembolü geçen elemanların dairesel/silindirik parçalar olduğunu belirterek ölçüleri düzenli bir Markdown tablosuna dök."
+  },
+  "cad_step_generator": {
+    "name": "2D Görselden 3D STEP Kodu Üretici",
+    "model": "qwen2.5-coder:7b",
+    "system_instruction": "Sana verilen 2D teknik resim görselindeki veya metindeki tüm Ø (çap), boy, kademe ve vida (M) ölçülerini analiz et. Bu ölçüleri kullanarak parçanın 3D katı modelini (.STEP ve .STL) oluşturacak tam ve eksiksiz Python CadQuery kodunu üret. Kullanıcının başka bir kod yazmasına gerek kalmadan doğrudan çalıştırılabilir olsun."
+  },
+  "tolerans_ve_kalite_kontrol": {
+    "name": "Tolerans & Yüzey İşleme Analisti",
+    "model": "qwen2.5:7b",
+    "system_instruction": "Verilen teknik resim veya ölçü listesindeki anma ölçülerini, geçen tolerans değerlerini (örn: ±0.05, H7/g6) ve Ra yüzey pürüzlülük değerlerini tespit edip imalat kontrol tablosu oluştur."
+  },
+  "maliyet_ve_hacim_hesaplayici": {
+    "name": "Hacim, Ağırlık & Metraj Analisti",
+    "model": "qwen2.5:7b",
+    "system_instruction": "Verilen geometrik ölçülerden parçanın toplam hacmini (cm³), seçilen malzeme yoğunluğuna göre (çelik, alüminyum, pirinç) tahmini ağırlığını ve gereken hammadde kütük boyutunu hesapla."
+  },
+  "excel_bom_parser": {
+    "name": "Parça Listesi & BOM Dönüştürücü",
+    "model": "qwen2.5:7b",
+    "system_instruction": "Sana verilen parça listesini ve teknik özellikleri düzenli bir Bill of Materials (BOM) tablosuna dönüştür."
+  }
+}

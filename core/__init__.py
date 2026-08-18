@@ -1,0 +1,1 @@
+﻿# AI YEREL GPT core
