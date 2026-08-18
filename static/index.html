@@ -218,6 +218,17 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
     color: #ffffff;
 }
 
+
+/* Durdur Butonu Stili */
+.btn-stop {
+    background-color: #ef4444 !important;
+    color: #ffffff !important;
+    border-color: #dc2626 !important;
+}
+.btn-stop:hover {
+    background-color: #dc2626 !important;
+}
+
 </style>
 </head>
 <body>
@@ -1215,6 +1226,34 @@ function attachMiniButtons() {
 
 // Balonlar oluştukça butonları otomatik bağla
 setInterval(attachMiniButtons, 1000);
+</script>
+
+
+<script>
+let globalAbortController = null;
+
+function setGeneratingState(isGenerating) {
+    const sendBtn = document.getElementById('send-btn') || document.querySelector('button[onclick*="send"]');
+    if (!sendBtn) return;
+
+    if (isGenerating) {
+        sendBtn.dataset.origText = sendBtn.innerHTML;
+        sendBtn.innerHTML = "🔴 Durdur";
+        sendBtn.classList.add('btn-stop');
+        sendBtn.onclick = function(e) {
+            e.preventDefault();
+            if (globalAbortController) {
+                globalAbortController.abort();
+                globalAbortController = null;
+            }
+            setGeneratingState(false);
+        };
+    } else {
+        sendBtn.innerHTML = sendBtn.dataset.origText || "Gönder";
+        sendBtn.classList.remove('btn-stop');
+        sendBtn.onclick = null; // Varsayılan form/click fonksiyonuna döner
+    }
+}
 </script>
 
 </body>
