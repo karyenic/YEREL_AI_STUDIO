@@ -287,6 +287,11 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
     <button id="newChatBtn">+ Yeni Sohbet</button>
     <div id="sidebarModelLabel"><span style="color:#ffffff !important; font-weight:700 !important; font-size:0.95rem !important;">Model seç</span></div>
     <select id="modelSelect"></select>
+
+        <div style="font-size: 0.73rem; color: var(--text-muted, #888d9a); margin-top: 4px; margin-bottom: 10px; opacity: 0.85;">
+            💡 <i>Rol seçimi üst bardadır ↗️</i>
+        </div>
+    
     <button id="downloadChatBtn">💾 Sohbeti İndir (.txt)</button>
     <div id="historyList"></div>
 </div>
@@ -995,7 +1000,7 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
         const url = hasImages ? '/chat-multi-image' : '/chat';
         const body = hasImages
             ? { prompt: userMsg, model, images: imagesToSend, history }
-            : { prompt: userMsg, model, history };
+            : { prompt: userMsg, model, history, system: getSelectedRolePrompt() };
 
         let finalModel = model;
         let finalFallback = false;
@@ -1243,6 +1248,19 @@ document.getElementById('shutdownBtn').addEventListener('click', async () => {
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;font-size:18px;">✅ Uygulama ve Ollama kapatıldı. Bu sekmeyi kapatabilirsin.</div>';
     setTimeout(() => { window.close(); }, 800);
 });
+
+    const SYSTEM_ROLES = {
+        default: "",
+        coder: "Sen kıdemli bir yazılım mimarısın. Yanıtlarında temiz, optimize edilmiş, güvenli kod yazımına ve mimari açıklamalara öncelik ver.",
+        writer: "Sen teknik metin yazarı ve akademisyensin. Dilin net, ölçülü ve dilbilgisine tam uygun olsun.",
+        analyst: "Sen kıdemli bir veri analistisin. Yanıtlarını mantıksal adımlara böl, analitik yaklaşımla sun."
+    };
+
+    function getSelectedRolePrompt() {
+        const el = document.getElementById('topbarRoleSelect');
+        return el ? (SYSTEM_ROLES[el.value] || "") : "";
+    }
+
 </script>
 
 <script>
