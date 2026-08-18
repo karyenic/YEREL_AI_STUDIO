@@ -1,5 +1,5 @@
-﻿import io
-import os
+﻿import os
+import re
 import sys
 import time
 import json
@@ -8,6 +8,11 @@ import base64
 import threading
 import subprocess
 from datetime import datetime
+import io
+
+import matplotlib
+matplotlib.use('Agg')  # Arka planda sessiz grafik üretimi için
+import matplotlib.pyplot as plt
 
 from flask import Flask, request, jsonify, send_from_directory, send_file, Response
 from flask_cors import CORS
@@ -21,7 +26,7 @@ from openpyxl import Workbook
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
-# GPU (Intel Arc 140V vb.) Sürücü Desteği - Olursa kullanır, olmazsa es geçer
+# GPU (Intel Arc 140V vb.) Sürücü Desteği
 os.environ['OLLAMA_IGPU_ENABLE'] = '1'
 
 app = Flask(__name__, static_folder='static')
@@ -29,8 +34,11 @@ CORS(app, expose_headers=['X-Saved-Filename'])
 
 EXCELS_DIR = os.path.join(BASE_DIR, 'excels')
 UPLOADS_DIR = os.path.join(BASE_DIR, 'uploads')
+CHARTS_DIR = os.path.join(BASE_DIR, 'static', 'charts')
+
 os.makedirs(EXCELS_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs(CHARTS_DIR, exist_ok=True)
 
 # -------------------------------------------------
 # 2. MODEL CONTEXT VE DONANIM AYARLARI
@@ -110,20 +118,24 @@ def stop_ollama():
 atexit.register(stop_ollama)
 
 # -------------------------------------------------
-# 4. SYSTEM PROMPTLAR VE AKILLI ROTALAMA
+# 4. PROMPTS.JSON OKUMA VE AKILLI ROTALAMA
 # -------------------------------------------------
-MASTER_SYSTEM_PROMPT = (
-    "Sen, adı Güven olan bir kullanıcıyla, onun kendi bilgisayarında çalışan yerel bir "
-    "yapay zeka asistanısın. Güven, Dell 16250 Plus model bir dizüstü bilgisayar kullanıyor "
-    "ve seninle bu cihaz üzerinde kurulu 'GK YEREL AI' adlı uygulama üzerinden sohbet "
-    "ediyor; yani bu bir bulut hizmeti değil, onun kendi makinesinde çalışan özel bir kurulum. "
-    "Güven, bilgisayar ve Android mobil cihazlar konusunda amatör/sıradan bir kullanıcıdır; "
-    "teknik terimleri gereksiz yere kullanmadan, sade ve anlaşılır bir dille yardımcı ol. "
-    "Onunla HER ZAMAN yarı profesyonel, saygılı ve akıcı bir Türkçe ile konuş."
-)
+PROMPTS_PATH = r"C:\AI_YEREL\AI_YEREL_GPT\config\prompts.json"
 
-LANGUAGE_RULE = " ÖNEMLİ DİL KURALI: Cevabının TAMAMINI, baştan sona, akıcı ve doğru dilbilgisi kurallarına uygun TÜRKÇE yaz."
-RESPONSE_STYLE_RULE = " YANIT TARZI KURALLARI: (1) KISA VE ÖZ OL. (2) KLİŞE TEKRARI YAPMA. (3) KOD BLOĞU KURALI: Kod istendiğinde kod bloğunda ver."
+def load_system_prompt():
+    try:
+        if os.path.exists(PROMPTS_PATH):
+            with open(PROMPTS_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('master_system_prompt', '')
+        else:
+            print(f"[GK AI Uyarısı] prompts.json bulunamadı: {PROMPTS_PATH}")
+            return "Sen, GK YEREL AI asistanısın."
+    except Exception as e:
+        print(f"[GK AI Hata] prompts.json okuma hatası: {e}")
+        return "Sen, GK YEREL AI asistanısın."
+
+MASTER_SYSTEM_PROMPT = load_system_prompt()
 
 CODE_KEYWORDS = ('python', 'kod', 'script', 'fonksiyon', 'html', 'css', 'javascript', 'bug', 'flask', 'yazılım', 'yaz')
 REASONING_KEYWORDS = ('neden', 'kanıtla', 'adım adım', 'mantık', 'karşılaştır', 'analiz et', 'hesapla', 'ispat')
@@ -143,10 +155,42 @@ def resolve_auto_model(prompt: str, has_images: bool = False) -> str:
 
 def build_system_prompt(model=None):
     today = datetime.now().strftime('%d.%m.%Y')
-    return MASTER_SYSTEM_PROMPT + LANGUAGE_RULE + RESPONSE_STYLE_RULE + f" Bugünün tarihi: {today}."
+    prompt = load_system_prompt()
+    return f"{prompt}\n\nBugünün tarihi: {today}."
 
 # -------------------------------------------------
-# 5. MODEL AKIŞLARI VE GÖREV DEVRİ
+# 5. GRAFİK ÇALIŞTIRMA MOTORU
+# -------------------------------------------------
+def execute_chart_code(text):
+    try:
+        code_match = re.search(r'```python(.*?)```', text, re.DOTALL)
+        if not code_match:
+            return None
+        
+        code = code_match.group(1)
+        if "plt." not in code and "matplotlib" not in code:
+            return None
+
+        chart_filename = f"chart_{int(time.time())}.png"
+        chart_path = os.path.join(CHARTS_DIR, chart_filename)
+
+        # plt.show() varsa plt.savefig() ile değiştir
+        code = code.replace("plt.show()", f"plt.savefig(r'{chart_path}', bbox_inches='tight')")
+        if "plt.savefig" not in code:
+            code += f"\nplt.savefig(r'{chart_path}', bbox_inches='tight')"
+
+        plt.figure()
+        exec_scope = {}
+        exec(code, exec_scope)
+        plt.close('all')
+
+        return f"/static/charts/{chart_filename}"
+    except Exception as e:
+        print(f"[GK AI Grafik Hatası]: {e}")
+        return None
+
+# -------------------------------------------------
+# 6. MODEL AKIŞLARI VE GÖREV DEVRİ
 # -------------------------------------------------
 def format_gemini_contents(prompt, images=None, history=None):
     from google.genai import types
@@ -173,7 +217,6 @@ def _stream_ollama(model, prompt, images, history):
     
     if not is_ollama_running(): start_ollama()
 
-    # GPU KORUMALI ÇAĞRI: Önce varsayılan ayarlarla dener, hata alırsa GPU parametresiz CPU'ya düşer
     try:
         stream = ollama_client.chat(
             model=model, messages=messages, keep_alive='30m',
@@ -215,7 +258,6 @@ def _stream_gemini_search(prompt, history=None):
 def stream_from_model(model, prompt, images=None, history=None):
     prompt_lower = prompt.lower()
     
-    # AJAN HİBRİT AKIŞI: Güncel web araması gerekiyorsa
     if any(kw in prompt_lower for kw in WEB_TRIGGER_KEYWORDS) and GEMINI_API_KEY and gemini_client and model != 'arastirma:gemini-search':
         yield "🌐 *[GK AI Ajanı]: Canlı web verileri için Gemini Google Search kullanılıyor...*\n\n"
         web_facts = ""
@@ -246,6 +288,7 @@ def stream_from_model(model, prompt, images=None, history=None):
 
 def stream_chat_response(prompt, model, images, history):
     def event_stream():
+        accumulated_text = ""
         try:
             gen = stream_from_model(model, prompt, images=images, history=history)
             first_piece = next(gen)
@@ -257,20 +300,29 @@ def stream_chat_response(prompt, model, images, history):
             return
 
         yield json.dumps({'type': 'meta', 'model': model, 'fallback': False}, ensure_ascii=False) + '\n'
-        if first_piece: yield json.dumps({'type': 'chunk', 'text': first_piece}, ensure_ascii=False) + '\n'
+        if first_piece:
+            accumulated_text += first_piece
+            yield json.dumps({'type': 'chunk', 'text': first_piece}, ensure_ascii=False) + '\n'
 
         try:
-            for piece in gen: yield json.dumps({'type': 'chunk', 'text': piece}, ensure_ascii=False) + '\n'
+            for piece in gen:
+                accumulated_text += piece
+                yield json.dumps({'type': 'chunk', 'text': piece}, ensure_ascii=False) + '\n'
         except Exception as e:
             yield json.dumps({'type': 'error', 'message': f'Akış kesildi: {e}'}, ensure_ascii=False) + '\n'
             return
+
+        # Yanıt bittiğinde arka planda grafik kuralını kontrol et ve çalıştır
+        chart_url = execute_chart_code(accumulated_text)
+        if chart_url:
+            yield json.dumps({'type': 'chunk', 'text': f"\n\n![Grafik]({chart_url})"}, ensure_ascii=False) + '\n'
 
         yield json.dumps({'type': 'done'}, ensure_ascii=False) + '\n'
 
     return Response(event_stream(), mimetype='application/x-ndjson')
 
 # -------------------------------------------------
-# 6. ROUTER VE SERVİSLER
+# 7. ROUTER VE SERVİSLER
 # -------------------------------------------------
 @app.route('/')
 def index(): return send_from_directory('static', 'index.html')
