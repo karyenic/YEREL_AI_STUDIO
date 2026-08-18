@@ -1005,8 +1005,8 @@ body.dim-theme .chat-bubble, body.dim-theme .message-bubble {
         const hasImages = imagesToSend.length > 0;
         const url = hasImages ? '/chat-multi-image' : '/chat';
         const body = hasImages
-            ? { prompt: userMsg, model, images: imagesToSend, history }
-            : { prompt: userMsg, model, history, system: getSelectedRolePrompt() };
+            ? { prompt: userMsg, model, images: imagesToSend, history: (history || []).slice(-10) }
+            : { prompt: userMsg, model, history: (history || []).slice(-10), system: getSelectedRolePrompt() };
 
         let finalModel = model;
         let finalFallback = false;
